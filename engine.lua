@@ -58,7 +58,9 @@ return function(bytecode, opcodes)
         local inst = Instructions[PC]
         if not inst then break end
         
-        local OP = inst[1]
+        local mutated_op = inst[1]
+        local OP = (mutated_op - (PC % 7)) % 256
+        
         local A = inst[2]
         local B = inst[3]
         local C = inst[4]
@@ -80,6 +82,29 @@ return function(bytecode, opcodes)
                 decrypted[i] = string.char(bxor(char_byte, key_byte))
             end
             Stack[A] = table.concat(decrypted)
+        elseif OP == opcodes.OP_ADD then
+            local str = Stack[B]
+            local key = Stack[C]
+            local decrypted = {}
+            for i = 1, #str do
+                local key_byte = string.byte(key, ((i - 1) % #key) + 1)
+                local char_byte = string.byte(str, i, i)
+                local dec = char_byte - key_byte
+                if dec < 0 then dec = dec + 256 end
+                decrypted[i] = string.char(dec)
+            end
+            Stack[A] = table.concat(decrypted)
+        elseif OP == opcodes.OP_REVXOR then
+            local str = Stack[B]
+            local key = Stack[C]
+            local decrypted = {}
+            local len = #str
+            for i = 1, len do
+                local key_byte = string.byte(key, ((i - 1) % #key) + 1)
+                local char_byte = string.byte(str, i, i)
+                decrypted[len - i + 1] = string.char(bxor(char_byte, key_byte))
+            end
+            Stack[A] = table.concat(decrypted)
         elseif OP == opcodes.OP_ENV then
             local env = getfenv and getfenv() or _G
             Stack[A] = env.loadstring or loadstring
@@ -93,6 +118,10 @@ return function(bytecode, opcodes)
             end
         elseif OP == opcodes.OP_CALL then
             Stack[A]()
+        elseif OP == opcodes.OP_JMP then
+            PC = PC + Bx
+        elseif OP == opcodes.OP_TRASH then
+            -- Fallthrough junk code block
         elseif OP == opcodes.OP_HALT then
             break
         end
