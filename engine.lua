@@ -1,4 +1,20 @@
-return function(bytecode, opcodes)
+local bxor = bit32 and bit32.bxor or function(a,b)
+    local p,c=1,0
+    while a>0 and b>0 do
+        local ra,rb=a%2,b%2
+        if ra~=rb then c=c+p end
+        a,b,p=(a-ra)/2,(b-rb)/2,p*2
+    end
+    if a<b then a=b end
+    while a>0 do
+        local ra=a%2
+        if ra>0 then c=c+p end
+        a,p=(a-ra)/2,p*2
+    end
+    return c
+end
+
+return function(bytecode, opcodes, sbox)
     local pos = 1
     
     local function gBits8()
@@ -17,22 +33,6 @@ return function(bytecode, opcodes)
         local str = string.sub(bytecode, pos, pos + len - 1)
         pos = pos + len
         return str
-    end
-
-    local bxor = bit32 and bit32.bxor or function(a,b)
-        local p,c=1,0
-        while a>0 and b>0 do
-            local ra,rb=a%2,b%2
-            if ra~=rb then c=c+p end
-            a,b,p=(a-ra)/2,(b-rb)/2,p*2
-        end
-        if a<b then a=b end
-        while a>0 do
-            local ra=a%2
-            if ra>0 then c=c+p end
-            a,p=(a-ra)/2,p*2
-        end
-        return c
     end
 
     local inst_len = gBits32()
@@ -59,7 +59,7 @@ return function(bytecode, opcodes)
         if not inst then break end
         
         local mutated_op = inst[1]
-        local OP = (mutated_op - (PC % 7)) % 256
+        local OP = sbox[mutated_op + 1]
         
         local A = inst[2]
         local B = inst[3]
@@ -74,20 +74,22 @@ return function(bytecode, opcodes)
             Stack[A] = Stack[B] .. Stack[C]
         elseif OP == opcodes.OP_XOR then
             local str = Stack[B]
-            local key = Stack[C]
+            local seed = Bx
             local decrypted = {}
             for i = 1, #str do
-                local key_byte = string.byte(key, ((i - 1) % #key) + 1)
+                seed = (seed * 1664525 + 1013904223) % 4294967296
+                local key_byte = seed % 256
                 local char_byte = string.byte(str, i, i)
                 decrypted[i] = string.char(bxor(char_byte, key_byte))
             end
             Stack[A] = table.concat(decrypted)
         elseif OP == opcodes.OP_ADD then
             local str = Stack[B]
-            local key = Stack[C]
+            local seed = Bx
             local decrypted = {}
             for i = 1, #str do
-                local key_byte = string.byte(key, ((i - 1) % #key) + 1)
+                seed = (seed * 1664525 + 1013904223) % 4294967296
+                local key_byte = seed % 256
                 local char_byte = string.byte(str, i, i)
                 local dec = char_byte - key_byte
                 if dec < 0 then dec = dec + 256 end
@@ -96,11 +98,12 @@ return function(bytecode, opcodes)
             Stack[A] = table.concat(decrypted)
         elseif OP == opcodes.OP_REVXOR then
             local str = Stack[B]
-            local key = Stack[C]
+            local seed = Bx
             local decrypted = {}
             local len = #str
             for i = 1, len do
-                local key_byte = string.byte(key, ((i - 1) % #key) + 1)
+                seed = (seed * 1664525 + 1013904223) % 4294967296
+                local key_byte = seed % 256
                 local char_byte = string.byte(str, i, i)
                 decrypted[len - i + 1] = string.char(bxor(char_byte, key_byte))
             end
@@ -120,8 +123,11 @@ return function(bytecode, opcodes)
             Stack[A]()
         elseif OP == opcodes.OP_JMP then
             PC = PC + Bx
+        elseif OP == opcodes.OP_JMP_TRUE then
+            if Stack[A] then
+                PC = PC + Bx
+            end
         elseif OP == opcodes.OP_TRASH then
-            -- Fallthrough junk code block
         elseif OP == opcodes.OP_HALT then
             break
         end
