@@ -29,6 +29,12 @@ return function(bytecode, opcodes, sbox)
         return (b1 * 16777216) + (b2 * 65536) + (b3 * 256) + b4
     end
 
+    local function gBits16()
+        local b1, b2 = string.byte(bytecode, pos, pos + 1)
+        pos = pos + 2
+        return (b1 * 256) + b2
+    end
+
     local function gString(len)
         local str = string.sub(bytecode, pos, pos + len - 1)
         pos = pos + len
@@ -41,8 +47,8 @@ return function(bytecode, opcodes, sbox)
         local op = gBits8()
         local A = gBits8()
         local B = gBits8()
-        local C = gBits8()
-        Instructions[i] = {op, A, B, C, (B * 256) + C}
+        local Bx = gBits16()
+        Instructions[i] = {op, A, B, Bx}
     end
     
     local const_len = gBits32()
@@ -63,15 +69,14 @@ return function(bytecode, opcodes, sbox)
         
         local A = inst[2]
         local B = inst[3]
-        local C = inst[4]
-        local Bx = inst[5]
+        local Bx = inst[4]
         
         if OP == opcodes.OP_MOVE then
             Stack[A] = Stack[B]
         elseif OP == opcodes.OP_LOADSTR then
             Stack[A] = Constants[Bx]
         elseif OP == opcodes.OP_CONCAT then
-            Stack[A] = Stack[B] .. Stack[C]
+            Stack[A] = Stack[B] .. Stack[Bx]
         elseif OP == opcodes.OP_XOR then
             local str = Stack[B]
             local seed = Bx
@@ -113,7 +118,7 @@ return function(bytecode, opcodes, sbox)
             Stack[A] = env.loadstring or loadstring
         elseif OP == opcodes.OP_LOADSTRING then
             local loader = Stack[B]
-            local source = Stack[C]
+            local source = Stack[Bx]
             if not loader then
                 Stack[A] = assert((load or loadstring)(source, "@Lunar_Obfuscated"))
             else
@@ -123,15 +128,18 @@ return function(bytecode, opcodes, sbox)
             Stack[A]()
         elseif OP == opcodes.OP_JMP then
             PC = PC + Bx
+            goto skip_pc_inc
         elseif OP == opcodes.OP_JMP_TRUE then
             if Stack[A] then
                 PC = PC + Bx
+                goto skip_pc_inc
             end
         elseif OP == opcodes.OP_TRASH then
         elseif OP == opcodes.OP_HALT then
             break
         end
         
+        ::skip_pc_inc::
         PC = PC + 1
     end
 end
